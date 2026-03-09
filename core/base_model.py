@@ -518,10 +518,11 @@ class BrainLikeQwenModel(nn.Module):
         Args:
             pretrained_path: 预训练权重路径
         """
-        # 这里实现从Qwen3.5-0.8B加载权重的逻辑
-        # 静态分支权重从预训练模型加载
-        # 动态分支权重保持随机初始化
-        pass
+        from .weight_loader import load_qwen_weights_to_model
+        missing_keys, unexpected_keys = load_qwen_weights_to_model(
+            self, pretrained_path, freeze_static=True
+        )
+        return missing_keys, unexpected_keys
     
     def save_weights(self, save_path: str, save_static: bool = False):
         """
