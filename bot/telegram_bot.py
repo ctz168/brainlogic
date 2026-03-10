@@ -19,7 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 TELEGRAM_BOT_TOKEN = os.environ.get(
     "TELEGRAM_BOT_TOKEN",
-    "8534413276:AAHzqgxVTOL2fapd8NV7UjppF4NXr1zSUek"
+    "8662325274:AAHj2icRMOFGTryPleUR7Ygc50caMTQMAqA"
 )
 
 _engine = None
@@ -28,8 +28,9 @@ _engine = None
 def get_engine():
     global _engine
     if _engine is None:
-        from core.trained_engine import TrainedInferenceEngine
-        _engine = TrainedInferenceEngine()
+        from core.truly_integrated_engine import TrulyIntegratedEngine
+        model_path = str(PROJECT_ROOT / "weights/Qwen3.5-0.8B-Base")
+        _engine = TrulyIntegratedEngine(model_path)
     return _engine
 
 
@@ -41,20 +42,13 @@ async def run_bot():
     )
     from telegram.constants import ParseMode
     
-    engine = get_engine()
-    
-    logger.info("正在加载训练后的模型...")
-    if not engine.initialize():
-        logger.error("模型加载失败")
-        return
-    
-    logger.info("模型加载成功！")
+    logger.info("Bot is starting (Engine will load lazily)...")
     
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
     async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
-            "🧠 *类人脑双系统AI (训练后版)*\n\n"
+            "类人脑双系统AI (训练后版)\n\n"
             "已加载训练后的动态权重\n\n"
             "命令：\n"
             "/start - 开始\n"
@@ -77,41 +71,45 @@ async def run_bot():
     
     async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_message = update.message.text
+        print(f">>> Received: {user_message}")
         
-        if not user_message:
-            return
+        if not user_message: return
+        
+        engine = get_engine()
+        message = await update.message.reply_text("已收到！类脑引擎正在准备中...")
+        
+        if not engine._initialized:
+            await message.edit_text("类脑引擎（Qwen3.5-0.8B）初次运行，正在加载权重 (约需1-2分钟)，请耐心等待...")
+            if not engine.initialize():
+                await message.edit_text("❌ 引擎加载失败，请检查模型文件。")
+                return
+            await message.edit_text("✅ 引擎加载完成！现在开始思考您的指令...")
         
         await update.message.chat.send_action("typing")
         
         try:
             response_text = ""
-            chunk_size = 20
+            chunk_size = 5
             last_sent_len = 0
-            message = None
+            message = await update.message.reply_text("已收到！类脑引擎（Qwen3.5-0.8B）正在以100Hz刷新频率思考中，请稍候...")
             
             for token in engine.generate_stream(user_message):
                 response_text += token
                 
                 if len(response_text) - last_sent_len >= chunk_size:
                     try:
-                        if message is None:
-                            message = await update.message.reply_text(response_text)
-                        else:
-                            await message.edit_text(response_text)
+                        await message.edit_text(f"思考中...\n\n{response_text}")
                         last_sent_len = len(response_text)
                     except Exception:
                         pass
             
             if response_text:
-                if message is None:
+                try:
+                    await message.edit_text(response_text)
+                except Exception:
                     await update.message.reply_text(response_text)
-                else:
-                    try:
-                        await message.edit_text(response_text)
-                    except Exception:
-                        await update.message.reply_text(response_text)
             else:
-                await update.message.reply_text("抱歉，我无法生成回复。")
+                await message.edit_text("抱歉，类脑引擎未产生有效输出。")
             
         except Exception as e:
             logger.error(f"处理消息失败: {e}")
@@ -123,7 +121,7 @@ async def run_bot():
     application.add_handler(CommandHandler("test", test_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    logger.info("🧠 类人脑AI Telegram Bot (训练后版) 启动中...")
+    logger.info("类人脑AI Telegram Bot (训练后版) 启动中...")
     
     await application.initialize()
     await application.start()
@@ -144,7 +142,7 @@ async def run_bot():
 
 def main():
     print("=" * 60)
-    print("🧠 类人脑双系统AI架构 - Telegram Bot (训练后版)")
+    print("类人脑双系统AI架构 - Telegram Bot (训练后版)")
     print("=" * 60)
     asyncio.run(run_bot())
 

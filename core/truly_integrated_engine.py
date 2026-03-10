@@ -364,6 +364,7 @@ class TrulyIntegratedEngine:
         
         self.device = torch.device("cpu")
         self._initialized = False
+        self.stop_token_ids = []
     
     def initialize(self) -> bool:
         """初始化"""
@@ -395,8 +396,15 @@ class TrulyIntegratedEngine:
             self.model, self.tokenizer, self.config
         )
         
+        # 获取停止符
+        self.stop_token_ids = [self.tokenizer.eos_token_id]
+        im_end_id = self.tokenizer.convert_tokens_to_ids("<|im_end|>")
+        if im_end_id and im_end_id != self.tokenizer.unk_token_id:
+            self.stop_token_ids.append(im_end_id)
+        
         self._initialized = True
         logger.info("引擎初始化完成！")
+        logger.info(f"停止符清单: {self.stop_token_ids}")
         logger.info(f"刷新周期: {self.config.refresh_period_ms}ms (100Hz)")
         logger.info(f"STDP学习率: LTP={self.config.stdp_alpha}, LTD={self.config.stdp_beta}")
         
@@ -432,7 +440,15 @@ class TrulyIntegratedEngine:
                 return
         
         # 构建输入
-        input_text = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+        # 构建输入 (针对Base模型增加日期引导)
+        current_time_str = time.strftime("%Y-%m-%d %H:%M:%S")
+        input_text = (
+            f"<|im_start|>system\n"
+            f"当前日期和时间: {current_time_str}\n"
+            f"你是一个类脑AI助手，由100Hz刷新频率的神经引擎驱动。请简洁地回答用户问题。<|im_end|>\n"
+            f"<|im_start|>user\n{prompt}<|im_end|>\n"
+            f"<|im_start|>assistant\n"
+        )
         
         encodings = self.tokenizer(
             input_text, return_tensors='pt', max_length=512, truncation=True
@@ -460,15 +476,27 @@ class TrulyIntegratedEngine:
             # STDP学习
             self._stdp_learn(hidden_state)
             
+            # 惩罚重复 (Simple Repetition Penalty)
+            for token_id in set(input_ids[0].tolist()):
+                if logits[0, token_id] < 0:
+                    logits[0, token_id] *= 1.2
+                else:
+                    logits[0, token_id] /= 1.2
+            
             # 采样下一个token
             next_token = logits.argmax(dim=-1, keepdim=True)
             
-            # 检查结束
-            if next_token.item() == self.tokenizer.eos_token_id:
+            # 检查结束 (多停止符检查)
+            if next_token.item() in self.stop_token_ids:
                 break
             
             # 解码并输出
             token_text = self.tokenizer.decode(next_token[0])
+            
+            # 过滤残留的技术标签
+            if token_text.strip() == "<|im_end|>":
+                break
+            
             yield token_text
             
             # 更新输入

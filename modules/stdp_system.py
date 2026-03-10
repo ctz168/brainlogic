@@ -421,52 +421,56 @@ class STDPSystem:
     
     def apply_update(
         self,
-        weight_name: str,
-        update: torch.Tensor,
-        model: Optional[nn.Module] = None
+        param: nn.Parameter,
+        update: torch.Tensor
     ):
         """
         应用STDP权重更新
         
         Args:
-            weight_name: 权重名称
+            param: 权重参数对象
             update: 更新量
-            model: 模型实例（如果需要直接更新）
         """
-        # 获取权重
-        if model is not None:
-            for name, param in model.named_parameters():
-                if name == weight_name and param.requires_grad:
-                    # 应用更新
-                    new_weight = param.data + update
-                    
-                    # 权重裁剪
-                    new_weight = torch.clamp(
-                        new_weight,
-                        self.stdp_config.weight_min,
-                        self.stdp_config.weight_max
-                    )
-                    
-                    param.data = new_weight
-                    
-                    # 更新统计
-                    self._update_statistics(update)
-                    break
+        if not param.requires_grad:
+            return
+            
+        # 应用更新 (纯本地刷新，无反向传播)
+        # update 可能是一个标量或者与 param 同形状的张量
+        if update.dim() == 0:
+            param.data += update
+        else:
+            # 确保形状匹配
+            if update.shape == param.shape:
+                param.data += update
+            else:
+                # 均值更新
+                param.data += update.mean()
+        
+        # 权重裁剪 (生物脑突触强度限制)
+        param.data = torch.clamp(
+            param.data,
+            self.stdp_config.weight_min,
+            self.stdp_config.weight_max
+        )
+        
+        # 更新统计
+        self._update_statistics(update)
     
     def apply_all_updates(
         self,
         updates: Dict[str, torch.Tensor],
-        model: nn.Module
+        dynamic_params: Dict[str, nn.Parameter]
     ):
         """
         应用所有STDP更新
         
         Args:
             updates: 更新量字典
-            model: 模型实例
+            dynamic_params: 动态权重参数字典 (来自 model.get_all_dynamic_weights())
         """
         for name, update in updates.items():
-            self.apply_update(name, update, model)
+            if name in dynamic_params:
+                self.apply_update(dynamic_params[name], update)
     
     def _update_statistics(self, update: torch.Tensor):
         """更新统计信息"""

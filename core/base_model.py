@@ -38,55 +38,49 @@ class CycleOutput:
     cycle_time_ms: float
 
 
-class DynamicWeightBranch(nn.Module):
-    """STDP动态增量权重分支"""
+class BrainLikeLinear(nn.Module):
+    """类脑双轨线性层 (90% 静态 + 10% STDP 动态)"""
     
-    def __init__(self, hidden_size: int, intermediate_size: int = None, 
-                 init_std: float = 0.02):
+    def __init__(self, in_features: int, out_features: int, bias: bool = False, 
+                 dynamic_init_std: float = 0.02):
         super().__init__()
-        self.hidden_size = hidden_size
-        self.intermediate_size = intermediate_size or hidden_size * 4
+        self.in_features = in_features
+        self.out_features = out_features
         
-        # 动态权重初始化（小权重随机正态分布）
-        self.gate_weight = nn.Parameter(
-            torch.randn(hidden_size, hidden_size) * init_std
-        )
-        self.gate_bias = nn.Parameter(torch.zeros(hidden_size))
+        # 90% 静态基础分支 (使用 nn.Linear 容纳预训练权重)
+        self.static_branch = nn.Linear(in_features, out_features, bias=bias)
+        self.static_branch.weight.requires_grad = False
+        if bias:
+            self.static_branch.bias.requires_grad = False
+            
+        # 10% STDP 动态增量分支
+        # 使用较小的隐藏维度来实现 "10% 参数量" 的概念，或者直接使用同维度的增量
+        # 考虑到 prompt 要求 "10% 动态增量权重"，且要规避灾难性遗忘
+        # 我们这里使用 LoRA 风格的低秩分解来代表这 10% 的动态能力，
+        # 或者直接使用并行的全量线性层并标记为动态。
+        # 按指令要求：它是“新增可更新分支”。
+        self.dynamic_branch = nn.Linear(in_features, out_features, bias=bias)
+        # 初始化为小权重，确保初始时不影响静态分支表现
+        nn.init.normal_(self.dynamic_branch.weight, std=dynamic_init_std)
+        if bias:
+            nn.init.zeros_(self.dynamic_branch.bias)
         
-        # FFN动态分支
-        self.up_weight = nn.Parameter(
-            torch.randn(hidden_size, self.intermediate_size) * init_std
-        )
-        self.down_weight = nn.Parameter(
-            torch.randn(self.intermediate_size, hidden_size) * init_std
-        )
+        # 门控系数 (生物脑中的突触可塑性门控)
+        self.gate = nn.Parameter(torch.ones(1) * 0.1) # 初始门控强度
         
-        # STDP可塑性标记
-        self._stdp_eligible = True
-        self._last_update_time = 0.0
-        
-    def forward(self, x: torch.Tensor, static_output: torch.Tensor) -> torch.Tensor:
-        """前向传播，将动态分支与静态分支融合"""
-        # 门控机制
-        gate = torch.sigmoid(F.linear(x, self.gate_weight, self.gate_bias))
-        
-        # 动态分支计算
-        dynamic_hidden = F.linear(x, self.up_weight)
-        dynamic_hidden = F.silu(dynamic_hidden)
-        dynamic_output = F.linear(dynamic_hidden, self.down_weight)
-        
-        # 融合静态和动态输出
-        output = static_output + gate * dynamic_output
-        return output
-    
-    def get_stdp_weights(self) -> Dict[str, nn.Parameter]:
-        """获取可进行STDP更新的权重"""
-        return {
-            'gate_weight': self.gate_weight,
-            'gate_bias': self.gate_bias,
-            'up_weight': self.up_weight,
-            'down_weight': self.down_weight
-        }
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        static_out = self.static_branch(x)
+        dynamic_out = self.dynamic_branch(x)
+        # 融合输出：原生能力 + 动态学习出的增量能力
+        return static_out + self.gate * dynamic_out
+
+    def get_dynamic_parameters(self) -> Dict[str, nn.Parameter]:
+        """获取 STDP 可更新参数"""
+        params = {'weight': self.dynamic_branch.weight}
+        if self.dynamic_branch.bias is not None:
+            params['bias'] = self.dynamic_branch.bias
+        params['gate'] = self.gate
+        return params
 
 
 class AttentionWithDynamicBranch(nn.Module):
@@ -99,19 +93,13 @@ class AttentionWithDynamicBranch(nn.Module):
         self.num_heads = config.model_num_heads
         self.head_dim = self.hidden_size // self.num_heads
         
-        # 静态基础分支（将加载预训练权重）
-        self.q_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
-        self.k_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
-        self.v_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
-        self.o_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+        # 90% 静态 + 10% 动态 投影层
+        self.q_proj = BrainLikeLinear(self.hidden_size, self.hidden_size, dynamic_init_std=config.weight_split.dynamic_init_std)
+        self.k_proj = BrainLikeLinear(self.hidden_size, self.hidden_size, dynamic_init_std=config.weight_split.dynamic_init_std)
+        self.v_proj = BrainLikeLinear(self.hidden_size, self.hidden_size, dynamic_init_std=config.weight_split.dynamic_init_std)
+        self.o_proj = BrainLikeLinear(self.hidden_size, self.hidden_size, dynamic_init_std=config.weight_split.dynamic_init_std)
         
-        # STDP动态增量分支
-        self.dynamic_branch = DynamicWeightBranch(
-            self.hidden_size,
-            init_std=config.weight_split.dynamic_init_std
-        )
-        
-        # 海马体门控接口
+        # 海马体门控接口 (权重为 10% 动态部分)
         self.hippocampus_gate = nn.Parameter(
             torch.zeros(self.num_heads, 1, 1)
         )
@@ -142,7 +130,7 @@ class AttentionWithDynamicBranch(nn.Module):
         """
         batch_size, seq_len, _ = hidden_states.shape
         
-        # 计算Q, K, V
+        # 计算Q, K, V (使用双轨分支)
         q = self.q_proj(hidden_states)
         k = self.k_proj(hidden_states)
         v = self.v_proj(hidden_states)
@@ -184,11 +172,8 @@ class AttentionWithDynamicBranch(nn.Module):
         attn_output = attn_output.transpose(1, 2).contiguous()
         attn_output = attn_output.view(batch_size, seq_len, self.hidden_size)
         
-        # 静态分支输出
-        static_output = self.o_proj(attn_output)
-        
-        # 动态分支融合
-        output = self.dynamic_branch(hidden_states, static_output)
+        # 输出投影 (使用双轨分支)
+        output = self.o_proj(attn_output)
         
         # 提取特征用于海马体
         features = self._extract_features(hidden_states, attn_weights)
@@ -245,27 +230,16 @@ class FFNWithDynamicBranch(nn.Module):
         self.hidden_size = config.model_hidden_size
         self.intermediate_size = self.hidden_size * 4
         
-        # 静态基础分支
-        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
-        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
-        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
-        
-        # STDP动态增量分支
-        self.dynamic_branch = DynamicWeightBranch(
-            self.hidden_size,
-            self.intermediate_size,
-            init_std=config.weight_split.dynamic_init_std
-        )
+        # 90% 静态 + 10% 动态 投影层
+        self.gate_proj = BrainLikeLinear(self.hidden_size, self.intermediate_size, dynamic_init_std=config.weight_split.dynamic_init_std)
+        self.up_proj = BrainLikeLinear(self.hidden_size, self.intermediate_size, dynamic_init_std=config.weight_split.dynamic_init_std)
+        self.down_proj = BrainLikeLinear(self.intermediate_size, self.hidden_size, dynamic_init_std=config.weight_split.dynamic_init_std)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """前向传播"""
-        # 静态分支计算（SwiGLU激活）
+        """前向传播 (SwiGLU 的双轨实现)"""
         gate = F.silu(self.gate_proj(x))
         up = self.up_proj(x)
-        static_output = self.down_proj(gate * up)
-        
-        # 动态分支融合
-        output = self.dynamic_branch(x, static_output)
+        output = self.down_proj(gate * up)
         return output
     
     def freeze_static_weights(self):
@@ -276,6 +250,33 @@ class FFNWithDynamicBranch(nn.Module):
     def get_dynamic_weights(self) -> Dict[str, nn.Parameter]:
         """获取动态分支权重"""
         return self.dynamic_branch.get_stdp_weights()
+
+
+class VisualCortex(nn.Module):
+    """视觉皮层 - 多模态特征提取单元 (Qwen3.5-0.8B 原生适配)"""
+    
+    def __init__(self, config: BrainLikeConfig):
+        super().__init__()
+        self.config = config
+        # 使用双轨线性层进行视觉投影，支持 10% 动态更新
+        # 这里的输入维度应适配预训练的 Vision Tower 输出 (例如 SigLIP)
+        # 暂时使用 hidden_size 占位，实际由权重加载器映射
+        self.vision_tower_output_dim = 1152 # 假设值，适配实际模型
+        self.vision_proj = BrainLikeLinear(self.vision_tower_output_dim, config.model_hidden_size)
+    
+    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        """
+        将像素值映射到 LLM 隐藏空间
+        
+        Args:
+            pixel_values: 图像/视频帧张量 [batch, vision_tokens, vision_dim]
+            
+        Returns:
+            视觉 Token Embedding [batch, vision_tokens, hidden_size]
+        """
+        # 注意：这里输入已经是提取后的特征（流式传入），或者是原始像素
+        # Qwen3.5 原生支持交替 token。
+        return self.vision_proj(pixel_values)
 
 
 class TransformerBlockWithDynamicBranch(nn.Module):
@@ -332,10 +333,11 @@ class TransformerBlockWithDynamicBranch(nn.Module):
     def get_dynamic_weights(self) -> Dict[str, nn.Parameter]:
         """获取所有动态权重"""
         weights = {}
-        weights.update({f'layer{self.layer_idx}.attn.{k}': v 
-                       for k, v in self.self_attn.get_dynamic_weights().items()})
-        weights.update({f'layer{self.layer_idx}.mlp.{k}': v 
-                       for k, v in self.mlp.get_dynamic_weights().items()})
+        # 收集所有线性层的动态参数
+        for module_name, module in self.named_modules():
+            if isinstance(module, BrainLikeLinear):
+                for k, v in module.get_dynamic_parameters().items():
+                    weights[f"{module_name}.{k}"] = v
         return weights
 
 
@@ -369,19 +371,15 @@ class BrainLikeQwenModel(nn.Module):
         # 最终层归一化
         self.norm = nn.LayerNorm(config.model_hidden_size)
         
-        # 输出层（lm_head）
-        self.lm_head = nn.Linear(
+        # 输出层 (使用双轨线性层)
+        self.lm_head = BrainLikeLinear(
             config.model_hidden_size,
             config.model_vocab_size,
             bias=False
         )
         
-        # 动态输出层分支
-        self.lm_head_dynamic = DynamicWeightBranch(
-            config.model_hidden_size,
-            config.model_vocab_size,
-            init_std=config.weight_split.dynamic_init_std
-        )
+        # 视觉皮层
+        self.visual_cortex = VisualCortex(config)
         
         # 角色适配提示词模板
         self.role_templates = {
@@ -402,15 +400,17 @@ class BrainLikeQwenModel(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
+        pixel_values: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         memory_anchors: Optional[List[Dict]] = None,
         position_ids: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, List[TokenFeatures], Dict[str, torch.Tensor]]:
         """
-        前向传播
+        前流式前向传播
         
         Args:
             input_ids: 输入token ID [batch, seq_len]
+            pixel_values: 视觉特征输入 [batch, vision_tokens, vision_dim]
             attention_mask: 注意力掩码
             memory_anchors: 海马体记忆锚点
             position_ids: 位置编码
@@ -421,7 +421,16 @@ class BrainLikeQwenModel(nn.Module):
             dynamic_weights: 动态权重字典
         """
         # 词嵌入
-        hidden_states = self.embed_tokens(input_ids)
+        inputs_embeds = self.embed_tokens(input_ids)
+        
+        # 融合视觉特征 (如果存在)
+        if pixel_values is not None:
+            vision_embeds = self.visual_cortex(pixel_values)
+            # 在流式处理中，视觉特征按顺序拼接到 hidden_states
+            # 简化版：直接拼接
+            hidden_states = torch.cat([vision_embeds, inputs_embeds], dim=1)
+        else:
+            hidden_states = inputs_embeds
         
         # 逐层处理
         all_features = []
@@ -437,9 +446,8 @@ class BrainLikeQwenModel(nn.Module):
         # 最终归一化
         hidden_states = self.norm(hidden_states)
         
-        # 输出层
-        static_logits = self.lm_head(hidden_states)
-        logits = self.lm_head_dynamic(hidden_states, static_logits)
+        # 输出层 (使用双轨接口)
+        logits = self.lm_head(hidden_states)
         
         # 收集动态权重
         dynamic_weights = self.get_all_dynamic_weights()

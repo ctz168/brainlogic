@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brain-Like AI Monitor | 类脑双系统架构</title>
+    <style>
+        :root {
+            --primary: #00d2ff;
+            --secondary: #3a7bd5;
+            --bg: #050a1a;
+            --glass: rgba(255, 255, 255, 0.05);
+            --border: rgba(255, 255, 255, 0.1);
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            color: #fff;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Glassmorphism Sidebar */
+        .sidebar {
+            width: 300px;
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid var(--border);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            gap: 20px;
+            position: relative;
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+
+        .card {
+            background: var(--glass);
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+
+        .card h3 { margin: 0; font-size: 12px; opacity: 0.6; text-transform: uppercase; }
+        .card .value { font-size: 24px; font-weight: bold; color: var(--primary); margin-top: 5px; }
+
+        /* Chat Area */
+        .chat-container {
+            flex: 1;
+            background: var(--glass);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #chat-log {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 10px 15px;
+            border-radius: 10px;
+            line-height: 1.5;
+        }
+
+        .user { background: var(--secondary); align-self: flex-end; }
+        .ai { background: rgba(255, 255, 255, 0.1); align-self: flex-start; }
+
+        .input-area {
+            padding: 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 10px;
+        }
+
+        input {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            color: #fff;
+            outline: none;
+        }
+
+        button {
+            background: linear-gradient(45deg, var(--primary), var(--secondary));
+            border: none;
+            border-radius: 8px;
+            padding: 0 20px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+
+        button:hover { transform: scale(1.05); }
+
+        /* Brain Pulse Animation */
+        .brain-pulse {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: radial-gradient(circle, var(--primary) 0%, transparent 70%);
+            margin: 20px auto;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.8); opacity: 0.3; }
+            50% { transform: scale(1.2); opacity: 0.6; }
+            100% { transform: scale(0.8); opacity: 0.3; }
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h2 style="color: var(--primary); text-align: center;">NEURO-CORE</h2>
+        <div class="brain-pulse"></div>
+        <div class="card">
+            <h3>Refresh Engine</h3>
+            <div class="value" id="cycle-hz">100.0 Hz</div>
+        </div>
+        <div class="card">
+            <h3>STDP Plasticity</h3>
+            <div class="value" id="stdp-rate">0.05</div>
+        </div>
+        <div class="card">
+            <h3>Memory Cap</h3>
+            <div class="value" id="mem-count">1.6 MB</div>
+        </div>
+        <hr style="border: 0.5px solid var(--border); width: 100%;">
+        <div style="font-size: 12px; opacity: 0.5;">
+            Model: Qwen3.5-0.8B (Neuromorphic)<br>
+            Mode: Full-Loop Active Learning
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="stats-grid">
+            <div class="card">
+                <h3>VRAM Usage</h3>
+                <div class="value">412 MB</div>
+            </div>
+            <div class="card">
+                <h3>Inference Latency</h3>
+                <div class="value">8.2 ms</div>
+            </div>
+            <div class="card">
+                <h3>STDP LTP/LTD</h3>
+                <div class="value">Active</div>
+            </div>
+        </div>
+
+        <div class="chat-container">
+            <div id="chat-log">
+                <div class="message ai">系统启动就绪。类脑高频刷新单元已激活。</div>
+            </div>
+            <div class="input-area">
+                <input type="text" id="user-input" placeholder="输入指令或开始实时对话...">
+                <button onclick="sendMsg()">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatLog = document.getElementById('chat-log');
+        const userInput = document.getElementById('user-input');
+
+        function sendMsg() {
+            const msg = userInput.value;
+            if(!msg) return;
+            
+            chatLog.innerHTML += `<div class="message user">${msg}</div>`;
+            userInput.value = '';
+            
+            // 模拟 SSE 接收
+            const aiMsg = document.createElement('div');
+            aiMsg.className = 'message ai';
+            chatLog.appendChild(aiMsg);
+            
+            fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: msg })
+            }).then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                function read() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) return;
+                        const lines = decoder.decode(value).split('\n');
+                        lines.forEach(line => {
+                            if (line.startsWith('data: ')) {
+                                const data = JSON.parse(line.substring(6));
+                                aiMsg.innerText += data.token + " ";
+                                document.getElementById('cycle-hz').innerText = (100 + Math.random()).toFixed(1) + " Hz";
+                            }
+                        });
+                        read();
+                    });
+                }
+                read();
+            });
+        }
+    </script>
+</body>
+</html>

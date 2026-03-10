@@ -233,9 +233,12 @@ class CA3Region:
         self.recall_top_k = config.ca3_recall_top_k
         self.completion_threshold = config.ca3_completion_threshold
         
-        # 记忆存储（循环缓存）
+        # 记忆存储（循环缓存，显式限流在 2MB 以内）
         self._memory_store: Dict[str, MemoryUnit] = {}
         self._memory_order: deque = deque(maxlen=self.capacity)
+        
+        # 存算分离：活跃特征在 RAM，非活跃可能持久化（这里简化为 RAM 循环缓存）
+        self._max_ram_bytes = 2 * 1024 * 1024 # 2MB
         
         # 特征索引（用于快速检索）
         self._feature_index: Optional[torch.Tensor] = None
@@ -260,11 +263,14 @@ class CA3Region:
         Returns:
             是否存储成功
         """
-        # 检查容量
-        if len(self._memory_store) >= self.capacity:
-            # 移除最旧的记忆
-            oldest_id = self._memory_order.popleft()
-            del self._memory_store[oldest_id]
+        # 动态控制：如果接近 2MB，强制清理
+        current_size = len(self._memory_store) * (self.config.ec_feature_dim * 4 + 256) # 估算每个 Unit 大小
+        if current_size >= self._max_ram_bytes - 1024 or len(self._memory_store) >= self.capacity:
+            # 移除最旧的记忆 (FIFO，类似人脑遗忘机制)
+            if self._memory_order:
+                oldest_id = self._memory_order.popleft()
+                if oldest_id in self._memory_store:
+                    del self._memory_store[oldest_id]
         
         # 创建记忆单元
         memory_unit = MemoryUnit(

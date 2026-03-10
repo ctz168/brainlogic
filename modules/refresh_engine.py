@@ -42,6 +42,7 @@ class CycleContext:
     input_token: Optional[torch.Tensor] = None
     context_tokens: List[torch.Tensor] = field(default_factory=list)
     memory_anchors: List[Dict] = field(default_factory=list)
+    pixel_values: Optional[torch.Tensor] = None
     hidden_state: Optional[torch.Tensor] = None
     output_token: Optional[torch.Tensor] = None
     attention_weights: Optional[torch.Tensor] = None
@@ -209,6 +210,7 @@ class RefreshEngine:
     def run_cycle(
         self,
         input_token: torch.Tensor,
+        pixel_values: Optional[torch.Tensor] = None,
         context_tokens: Optional[List[torch.Tensor]] = None
     ) -> CycleResult:
         """
@@ -229,6 +231,7 @@ class RefreshEngine:
             start_time_ms=cycle_start,
             current_token_id=input_token.item() if isinstance(input_token, torch.Tensor) else input_token,
             input_token=input_token,
+            pixel_values=pixel_values,
             context_tokens=context_tokens or []
         )
         
@@ -326,6 +329,7 @@ class RefreshEngine:
         with torch.no_grad():
             logits, features, dynamic_weights = self.model(
                 input_ids,
+                pixel_values=self._current_context.pixel_values,
                 memory_anchors=self._current_context.memory_anchors
             )
         
