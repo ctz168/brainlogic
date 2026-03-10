@@ -445,9 +445,16 @@ class TrulyIntegratedEngine:
         input_text = (
             f"<|im_start|>system\n"
             f"当前日期和时间: {current_time_str}\n"
-            f"你是一个类脑AI助手，由100Hz刷新频率的神经引擎驱动。请简洁地回答用户问题。<|im_end|>\n"
+            f"你是一个类脑AI助手，由100Hz刷新频率的神经引擎驱动。请简洁地回答用户问题。\n\n"
+            f"【推理规范】对于数学或逻辑问题，请遵循以下思维链：\n"
+            f"1. 提取已知数据。\n"
+            f"2. 分步计算。\n"
+            f"3. 给出最终结论。\n\n"
+            f"【示例】\n"
+            f"User: 10颗苹果，吃了3颗，还剩几颗？\n"
+            f"Assistant: <think>10-3=7</think>还剩7颗苹果。<|im_end|>\n"
             f"<|im_start|>user\n{prompt}<|im_end|>\n"
-            f"<|im_start|>assistant\n"
+            f"<|im_start|>assistant\n<think>\n"
         )
         
         encodings = self.tokenizer(
@@ -487,8 +494,8 @@ class TrulyIntegratedEngine:
                 else:
                     logits[0, token_id] = score * 1.1
             
-            # 2. Temperature (0.7 for balance)
-            logits = logits / 0.7
+            # 2. Temperature (0.1 for logic precision)
+            logits = logits / 0.1
             
             # 3. Top-P (0.9)
             sorted_logits, sorted_indices = torch.sort(logits, descending=True)
