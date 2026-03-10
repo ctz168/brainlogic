@@ -1,0 +1,8 @@
+{
+  "base_model": "/home/z/my-project/download/brain_like_ai/models/Qwen3.5-0.8B",
+  "training_time": "2026-03-10T04:34:03.803449",
+  "epochs": 5,
+  "best_loss": 0.0909584746696055,
+  "trainable_params": 38543744,
+  "dynamic_weights_file": "dynamic_weights.pt"
+}

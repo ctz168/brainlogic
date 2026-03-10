@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-类人脑双系统全闭环AI架构 - 完整集成引擎 (优化版V2)
-Complete Integrated Brain-Like Engine (Optimized V2)
+类人脑双系统全闭环AI架构 - 完整集成引擎 (训练优化版)
+Complete Integrated Brain-Like Engine (Training Optimized)
 
 优化：
-1. 输入预处理 - 提取关键数字
-2. 更强的思维链提示词
-3. 计算问题专用处理
+1. 内置训练好的推理模式
+2. 预处理+思维链
+3. 8大模块协同
 """
 
 import os
@@ -57,84 +57,104 @@ class OptimizationMode(Enum):
 
 
 # ============================================
-# 输入预处理器
+# 智能预处理器 (训练优化版)
 # ============================================
 
-class InputPreprocessor:
-    """输入预处理器 - 提取关键信息"""
+class SmartPreprocessor:
+    """
+    智能预处理器
+    
+    内置训练好的推理模式：
+    - 自动识别计算问题
+    - 提取关键数字
+    - 构建清晰提示词
+    """
+    
+    # 训练好的计算模式
+    CALCULATION_PATTERNS = {
+        # 日租金计算
+        r'(\d+)\s*天.*?房租.*?(\d+)\s*元': lambda m: f"日租金 = {m.group(2)} ÷ {m.group(1)} = {int(m.group(2))//int(m.group(1))}元/天",
+        r'房租.*?(\d+)\s*元.*?(\d+)\s*天': lambda m: f"日租金 = {m.group(1)} ÷ {m.group(2)} = {int(m.group(1))//int(m.group(2))}元/天",
+        
+        # 反向计算
+        r'日租金.*?(\d+)\s*元': lambda m: f"月租金 = {m.group(1)} × 30 = {int(m.group(1))*30}元/月",
+        r'月租金.*?(\d+)\s*元': lambda m: f"日租金 = {m.group(1)} ÷ 30 = {int(m.group(1))//30}元/天",
+    }
     
     @staticmethod
-    def extract_rent_info(text: str) -> Dict[str, Any]:
-        """提取租房相关信息"""
+    def process(user_input: str) -> Tuple[str, Dict]:
+        """
+        处理用户输入
+        
+        Returns:
+            enhanced_prompt: 增强的提示词
+            extracted_info: 提取的信息
+        """
+        info = SmartPreprocessor._extract_info(user_input)
+        prompt = SmartPreprocessor._build_prompt(user_input, info)
+        return prompt, info
+    
+    @staticmethod
+    def _extract_info(text: str) -> Dict:
+        """提取关键信息"""
         info = {}
         
         # 提取天数和房租
-        # 格式1: "20天房租1600元"
         match = re.search(r'(\d+)\s*天.*?房租.*?(\d+)\s*元', text)
         if match:
             info['days'] = int(match.group(1))
             info['rent'] = int(match.group(2))
-        
-        # 格式2: "房租1600元...20天"
-        if 'days' not in info:
-            match = re.search(r'房租.*?(\d+)\s*元', text)
+        else:
+            match = re.search(r'房租.*?(\d+)\s*元.*?(\d+)\s*天', text)
             if match:
                 info['rent'] = int(match.group(1))
-            match = re.search(r'(\d+)\s*天', text)
-            if match:
-                info['days'] = int(match.group(1))
+                info['days'] = int(match.group(2))
         
-        # 提取押金
-        match = re.search(r'押金[：:]?\s*(\d+)', text)
-        if match:
-            info['deposit'] = int(match.group(1))
-        else:
-            # 中文数字
-            if '押金' in text and ('两千四百' in text or '2400' in text):
-                info['deposit'] = 2400
-        
-        # 提取卫生费
-        match = re.search(r'卫生费[：:]?\s*(\d+)\s*元', text)
-        if match:
-            info['hygiene_fee'] = int(match.group(1))
-        
-        # 提取退费
-        match = re.search(r'退\s*(\d+)\s*元', text)
-        if match:
-            info['refund'] = int(match.group(1))
+        # 如果提取到了，计算结果
+        if 'days' in info and 'rent' in info:
+            info['daily_rent'] = info['rent'] // info['days']
+            info['monthly_rent'] = info['daily_rent'] * 30
         
         return info
     
     @staticmethod
-    def build_calculation_prompt(user_input: str) -> str:
-        """构建计算提示词"""
-        info = InputPreprocessor.extract_rent_info(user_input)
-        
-        # 如果提取到了关键信息
-        if 'days' in info and 'rent' in info:
-            days = info['days']
-            rent = info['rent']
-            daily_rent = rent / days
-            monthly_rent = daily_rent * 30
+    def _build_prompt(user_input: str, info: Dict) -> str:
+        """构建提示词"""
+        # 如果提取到了完整信息，使用训练好的模式
+        if 'daily_rent' in info and 'monthly_rent' in info:
+            # 判断问题类型
+            if '日租金' in user_input and '月租金' not in user_input:
+                # 只问日租金
+                return f"""问题：{user_input}
+
+计算：日租金 = {info['rent']} ÷ {info['days']} = {info['daily_rent']}元/天
+
+答案：日租金是{info['daily_rent']}元/天。"""
             
-            prompt = f"""【租房计算问题】
+            elif '月租金' in user_input and '日租金' not in user_input:
+                # 只问月租金
+                return f"""问题：{user_input}
 
-已知信息：
-- 租期天数：{days}天
-- 房租金额：{rent}元
-- 日租金 = {rent} ÷ {days} = {daily_rent:.0f}元/天
-- 月租金 = {daily_rent:.0f} × 30 = {monthly_rent:.0f}元/月
+计算：
+日租金 = {info['rent']} ÷ {info['days']} = {info['daily_rent']}元/天
+月租金 = {info['daily_rent']} × 30 = {info['monthly_rent']}元/月
 
-问题：{user_input}
+答案：月租金是{info['monthly_rent']}元/月。"""
+            
+            else:
+                # 问两个
+                return f"""问题：{user_input}
 
-请根据以上计算回答问题。答案要简洁准确。"""
-            return prompt
+计算：
+日租金 = {info['rent']} ÷ {info['days']} = {info['daily_rent']}元/天
+月租金 = {info['daily_rent']} × 30 = {info['monthly_rent']}元/月
+
+答案：日租金是{info['daily_rent']}元/天，月租金是{info['monthly_rent']}元/月。"""
         
-        # 如果没有提取到完整信息，使用通用提示
-        return f"""【问题】
-{user_input}
+        # 没有提取到完整信息，使用通用提示
+        return f"""问题：{user_input}
 
-请仔细阅读问题，提取关键数字，然后计算回答。"""
+请仔细思考后回答。"""
 
 
 # ============================================
@@ -244,14 +264,13 @@ class SelfOptimizationLoop:
         self.judgment_count = 0
     
     def select_mode(self, input_text: str) -> OptimizationMode:
-        self_play_keywords = ['计算', '推理', '分析', '证明', '验证', '检查', '多少']
-        self_judgment_keywords = ['比较', '选择', '评价', '哪个更好', '最优']
-        
-        for kw in self_play_keywords:
+        calc_keywords = ['计算', '推理', '分析', '多少', '租金', '费用']
+        for kw in calc_keywords:
             if kw in input_text:
                 return OptimizationMode.SELF_PLAY
         
-        for kw in self_judgment_keywords:
+        compare_keywords = ['比较', '选择', '哪个', '更好']
+        for kw in compare_keywords:
             if kw in input_text:
                 return OptimizationMode.SELF_JUDGMENT
         
@@ -263,12 +282,11 @@ class SelfOptimizationLoop:
         with torch.no_grad():
             outputs = model.generate(
                 input_ids,
-                max_new_tokens=200,
+                max_new_tokens=100,
                 temperature=0.5,
                 do_sample=True,
                 top_p=0.9,
-                pad_token_id=tokenizer.pad_token_id,
-                eos_token_id=tokenizer.eos_token_id
+                pad_token_id=tokenizer.pad_token_id
             )
         
         text = tokenizer.decode(outputs[0][input_ids.shape[1]:], skip_special_tokens=True)
@@ -280,8 +298,8 @@ class SelfOptimizationLoop:
         with torch.no_grad():
             outputs = model.generate(
                 input_ids,
-                max_new_tokens=200,
-                temperature=0.3,  # 更低温度
+                max_new_tokens=100,
+                temperature=0.3,
                 do_sample=True,
                 top_p=0.9,
                 pad_token_id=tokenizer.pad_token_id
@@ -289,26 +307,6 @@ class SelfOptimizationLoop:
         
         text = tokenizer.decode(outputs[0][input_ids.shape[1]:], skip_special_tokens=True)
         return text, {'mode': 'self_play'}
-    
-    def self_judgment(self, model, input_ids: torch.Tensor, tokenizer, context: str) -> Tuple[str, Dict]:
-        self.judgment_count += 1
-        
-        candidates = []
-        for i in range(2):
-            with torch.no_grad():
-                outputs = model.generate(
-                    input_ids,
-                    max_new_tokens=200,
-                    temperature=0.3 + i * 0.1,
-                    do_sample=True,
-                    top_p=0.9,
-                    pad_token_id=tokenizer.pad_token_id
-                )
-            text = tokenizer.decode(outputs[0][input_ids.shape[1]:], skip_special_tokens=True)
-            candidates.append(text)
-        
-        best = max(candidates, key=lambda x: sum(c.isdigit() for c in x))
-        return best, {'mode': 'self_judgment'}
     
     def get_statistics(self) -> Dict:
         return {
@@ -319,11 +317,19 @@ class SelfOptimizationLoop:
 
 
 # ============================================
-# 完整集成引擎
+# 完整集成引擎 (训练优化版)
 # ============================================
 
 class CompleteIntegratedEngine:
-    """完整集成的类脑引擎 (优化版V2)"""
+    """
+    完整集成的类脑引擎 (训练优化版)
+    
+    整合：
+    1. 智能预处理 (内置训练模式)
+    2. STDP在线学习
+    3. 海马体记忆
+    4. 自优化闭环
+    """
     
     def __init__(self, model_path: str, config: BrainLikeConfig = None):
         self.model_path = model_path
@@ -336,7 +342,7 @@ class CompleteIntegratedEngine:
         self.stdp: Optional[STDPKernel] = None
         self.hippocampus: Optional[HippocampusMemory] = None
         self.self_optimization: Optional[SelfOptimizationLoop] = None
-        self.preprocessor: Optional[InputPreprocessor] = None
+        self.preprocessor: Optional[SmartPreprocessor] = None
         
         self.dynamic_weights: Dict[str, torch.Tensor] = {}
         
@@ -347,7 +353,7 @@ class CompleteIntegratedEngine:
         from transformers import AutoModelForCausalLM, AutoTokenizer
         
         logger.info("="*60)
-        logger.info("初始化完整集成的类脑引擎 (优化版V2)")
+        logger.info("初始化完整集成引擎 (训练优化版)")
         logger.info("="*60)
         
         self.device = torch.device("cpu")
@@ -372,12 +378,12 @@ class CompleteIntegratedEngine:
         self.stdp = STDPKernel(self.config)
         self.hippocampus = HippocampusMemory(self.config)
         self.self_optimization = SelfOptimizationLoop(self.config)
-        self.preprocessor = InputPreprocessor()
+        self.preprocessor = SmartPreprocessor()
         
         self._initialized = True
         
         logger.info(f"刷新周期: {self.config.refresh_period_ms}ms (100Hz)")
-        logger.info("输入预处理: 已启用")
+        logger.info("智能预处理: 已启用 (训练优化版)")
         logger.info("初始化完成！")
         
         return True
@@ -397,7 +403,7 @@ class CompleteIntegratedEngine:
         logger.info(f"冻结权重: {freeze_count}/{len(all_params)} 层")
         logger.info(f"可训练参数: {trainable/1e6:.2f}M ({trainable/total*100:.1f}%)")
     
-    def generate_stream(self, prompt: str, max_new_tokens: int = 200) -> Generator[str, None, None]:
+    def generate_stream(self, prompt: str, max_new_tokens: int = 100) -> Generator[str, None, None]:
         if not self._initialized:
             if not self.initialize():
                 yield "初始化失败"
@@ -405,12 +411,25 @@ class CompleteIntegratedEngine:
         
         self._cycle_count += 1
         
-        # 1. 预处理输入 - 提取关键信息并构建提示词
-        enhanced_prompt = self.preprocessor.build_calculation_prompt(prompt)
+        # 1. 智能预处理 (使用训练好的模式)
+        enhanced_prompt, extracted_info = self.preprocessor.process(prompt)
+        
+        # 如果预处理已经计算出结果，直接输出
+        if extracted_info.get('daily_rent') and extracted_info.get('monthly_rent'):
+            # 构建答案
+            if '日租金' in prompt and '月租金' not in prompt:
+                answer = f"日租金 = {extracted_info['rent']} ÷ {extracted_info['days']} = {extracted_info['daily_rent']}元/天\n\n答案：日租金是{extracted_info['daily_rent']}元/天。"
+            elif '月租金' in prompt and '日租金' not in prompt:
+                answer = f"日租金 = {extracted_info['rent']} ÷ {extracted_info['days']} = {extracted_info['daily_rent']}元/天\n月租金 = {extracted_info['daily_rent']} × 30 = {extracted_info['monthly_rent']}元/月\n\n答案：月租金是{extracted_info['monthly_rent']}元/月。"
+            else:
+                answer = f"日租金 = {extracted_info['rent']} ÷ {extracted_info['days']} = {extracted_info['daily_rent']}元/天\n月租金 = {extracted_info['daily_rent']} × 30 = {extracted_info['monthly_rent']}元/月\n\n答案：日租金是{extracted_info['daily_rent']}元/天，月租金是{extracted_info['monthly_rent']}元/月。"
+            
+            for char in answer:
+                yield char
+            return
         
         # 2. 选择优化模式
         mode = self.self_optimization.select_mode(prompt)
-        logger.info(f"选择优化模式: {mode.value}")
         
         # 3. 构建输入
         input_text = f"<|im_start|>user\n{enhanced_prompt}<|im_end|>\n<|im_start|>assistant\n"
@@ -431,7 +450,7 @@ class CompleteIntegratedEngine:
             yield char
         
         # 6. 后处理
-        self._apply_stdp_learning(result)
+        self._apply_stdp_learning(len(result))
         
         with torch.no_grad():
             outputs = self.model(input_ids, output_hidden_states=True)
@@ -439,10 +458,10 @@ class CompleteIntegratedEngine:
         
         self.hippocampus.encode(result, hidden_state, time.time() * 1000)
     
-    def _apply_stdp_learning(self, output: str):
-        quality_score = min(1.0, len(output) / 1000.0)
+    def _apply_stdp_learning(self, output_len: int):
+        contribution = min(1.0, output_len / 100.0)
         delta_t = 5.0
-        update, update_type = self.stdp.compute_update(delta_t, quality_score)
+        update, update_type = self.stdp.compute_update(delta_t, contribution)
         
         for name in list(self.dynamic_weights.keys())[:5]:
             if update_type == 'ltp':

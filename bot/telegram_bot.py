@@ -1,12 +1,11 @@
 """
-类人脑双系统全闭环AI架构 - Telegram Bot服务 (完整集成版V2)
+类人脑双系统全闭环AI架构 - Telegram Bot服务 (训练后版)
 """
 
 import asyncio
 import os
 import sys
 import logging
-from typing import Optional
 from pathlib import Path
 
 logging.basicConfig(
@@ -23,20 +22,14 @@ TELEGRAM_BOT_TOKEN = os.environ.get(
     "8534413276:AAHzqgxVTOL2fapd8NV7UjppF4NXr1zSUek"
 )
 
-MODEL_PATH = os.environ.get(
-    "MODEL_PATH",
-    str(PROJECT_ROOT / "models" / "Qwen3.5-0.8B")
-)
-
 _engine = None
 
 
 def get_engine():
     global _engine
     if _engine is None:
-        from core.complete_integrated_engine import CompleteIntegratedEngine, BrainLikeConfig
-        config = BrainLikeConfig()
-        _engine = CompleteIntegratedEngine(MODEL_PATH, config)
+        from core.trained_engine import TrainedInferenceEngine
+        _engine = TrainedInferenceEngine()
     return _engine
 
 
@@ -50,65 +43,37 @@ async def run_bot():
     
     engine = get_engine()
     
-    logger.info("正在初始化完整集成引擎...")
+    logger.info("正在加载训练后的模型...")
     if not engine.initialize():
-        logger.error("引擎初始化失败")
+        logger.error("模型加载失败")
         return
     
-    logger.info("引擎初始化成功！")
-    
-    stats = engine.get_statistics()
-    logger.info(f"引擎统计: {stats}")
+    logger.info("模型加载成功！")
     
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
     async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
-            "🧠 *类人脑双系统AI架构 (完整集成版V2)*\n\n"
-            "核心模块：\n"
-            "• 100Hz高刷新 - 每10ms推理周期\n"
-            "• STDP在线学习 - 边推理边更新\n"
-            "• 海马体记忆 - 长期记忆存储\n"
-            "• 自优化闭环 - 三种模式自动切换\n"
-            "• 输入预处理 - 提取关键信息\n\n"
+            "🧠 *类人脑双系统AI (训练后版)*\n\n"
+            "已加载训练后的动态权重\n\n"
             "命令：\n"
             "/start - 开始\n"
-            "/stats - 统计\n"
-            "/clear - 清空记忆",
+            "/test - 测试推理能力",
             parse_mode=ParseMode.MARKDOWN
         )
     
-    async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        stats = engine.get_statistics()
+    async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        test_questions = [
+            "房租1600元租了20天，日租金是多少？",
+            "房租1600元租了20天，月租金是多少？",
+        ]
         
-        text = "📊 *系统统计*\n\n"
-        text += f"*总周期数:* {stats.get('cycle_count', 0)}\n\n"
+        results = []
+        for q in test_questions:
+            answer = engine.generate(q)
+            results.append(f"Q: {q}\nA: {answer}")
         
-        if 'stdp' in stats:
-            stdp = stats['stdp']
-            text += f"*STDP学习:*\n"
-            text += f"• 更新次数: {stdp.get('total_updates', 0)}\n"
-            text += f"• LTP: {stdp.get('ltp_count', 0)}\n"
-            text += f"• LTD: {stdp.get('ltd_count', 0)}\n\n"
-        
-        if 'hippocampus' in stats:
-            hc = stats['hippocampus']
-            text += f"*海马体记忆:*\n"
-            text += f"• 记忆数量: {hc.get('memory_count', 0)}\n"
-            text += f"• 编码次数: {hc.get('encode_count', 0)}\n\n"
-        
-        if 'self_optimization' in stats:
-            opt = stats['self_optimization']
-            text += f"*自优化闭环:*\n"
-            text += f"• 自生成: {opt.get('generation_count', 0)}\n"
-            text += f"• 自博弈: {opt.get('play_count', 0)}\n"
-            text += f"• 自评判: {opt.get('judgment_count', 0)}\n"
-        
-        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-    
-    async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        engine.clear_memory()
-        await update.message.reply_text("✅ 记忆已清空！")
+        await update.message.reply_text("\n\n".join(results))
     
     async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_message = update.message.text
@@ -124,7 +89,7 @@ async def run_bot():
             last_sent_len = 0
             message = None
             
-            for token in engine.generate_stream(user_message, max_new_tokens=200):
+            for token in engine.generate_stream(user_message):
                 response_text += token
                 
                 if len(response_text) - last_sent_len >= chunk_size:
@@ -155,11 +120,10 @@ async def run_bot():
             await update.message.reply_text(f"❌ 处理失败: {str(e)}")
     
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(CommandHandler("clear", clear_command))
+    application.add_handler(CommandHandler("test", test_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    logger.info("🧠 类人脑AI Telegram Bot (完整集成版V2) 启动中...")
+    logger.info("🧠 类人脑AI Telegram Bot (训练后版) 启动中...")
     
     await application.initialize()
     await application.start()
@@ -180,12 +144,8 @@ async def run_bot():
 
 def main():
     print("=" * 60)
-    print("🧠 类人脑双系统AI架构 - Telegram Bot (完整集成版V2)")
+    print("🧠 类人脑双系统AI架构 - Telegram Bot (训练后版)")
     print("=" * 60)
-    print(f"Bot Token: {TELEGRAM_BOT_TOKEN[:20]}...")
-    print(f"Model Path: {MODEL_PATH}")
-    print("=" * 60)
-    
     asyncio.run(run_bot())
 
 
