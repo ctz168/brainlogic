@@ -472,12 +472,63 @@ class TrulyIntegratedEngine:
         generated_tokens = 0
         past_key_values = None
         
+        # 跟踪全局的绝对位置，确保 RoPE 旋转位置编码不受 O(1) 切片影响
+        current_position = input_ids.shape[-1] - 1
+        
         while generated_tokens < max_new_tokens:
+            
+            # 【核心架构原生约束】：True O(1) 注意力窄窗口切片
+            O1_WINDOW_SIZE = 128
+            
+            if past_key_values is not None:
+                # 处理新版 Transformers 的 Cache 对象
+                from transformers.cache_utils import Cache
+                
+                if isinstance(past_key_values, Cache):
+                    # 获取当前缓存长度
+                    seq_len = past_key_values.get_seq_length()
+                    if seq_len > O1_WINDOW_SIZE:
+                        # 使用 crop 截断（如果支持）或手动裁剪内部张量
+                        if hasattr(past_key_values, "crop"):
+                            past_key_values.crop(O1_WINDOW_SIZE)
+                        else:
+                            # 手动裁剪每一层的 key_cache 和 value_cache
+                            for i in range(len(past_key_values.key_cache)):
+                                past_key_values.key_cache[i] = past_key_values.key_cache[i][..., -O1_WINDOW_SIZE:, :]
+                                past_key_values.value_cache[i] = past_key_values.value_cache[i][..., -O1_WINDOW_SIZE:, :]
+                        
+                        # 同步截断 attention_mask
+                        if attention_mask.shape[-1] > O1_WINDOW_SIZE + 1:
+                            attention_mask = attention_mask[:, -(O1_WINDOW_SIZE+1):]
+                
+                # 处理旧版元组格式
+                elif isinstance(past_key_values, tuple):
+                    seq_len = past_key_values[0][0].shape[-2]
+                    if seq_len > O1_WINDOW_SIZE:
+                        new_past_key_values = []
+                        for layer_past in past_key_values:
+                            new_layer_past = tuple(
+                                tensor[:, :, -O1_WINDOW_SIZE:, :] for tensor in layer_past
+                            )
+                            new_past_key_values.append(new_layer_past)
+                        past_key_values = tuple(new_past_key_values)
+                        
+                        if attention_mask.shape[-1] > O1_WINDOW_SIZE + 1:
+                             attention_mask = attention_mask[:, -(O1_WINDOW_SIZE+1):]
+            
+            # 必须显式传入 position_ids，否则 Qwen2 会根据切断后的 pkv 长度重新计算位置索引，导致全校错乱
+            if past_key_values is None:
+                position_ids = torch.arange(0, input_ids.shape[-1], dtype=torch.long, device=self.device).unsqueeze(0)
+            else:
+                current_position += 1
+                position_ids = torch.tensor([[current_position]], dtype=torch.long, device=self.device)
+            
             # 执行刷新周期
             with torch.no_grad():
                 outputs = self.model(
                     input_ids=input_ids if past_key_values is None else input_ids[:, -1:],
                     attention_mask=attention_mask,
+                    position_ids=position_ids,
                     past_key_values=past_key_values,
                     use_cache=True,
                     output_hidden_states=True
