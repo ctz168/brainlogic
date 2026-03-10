@@ -330,7 +330,7 @@ class TrulyIntegratedEngine:
         # 存入语义指针，方便后续回合通过 Recall 召回
         if response_text.strip():
             self.refresh_engine.hippocampus.encode_episode(
-                torch.randn(1, 4096).to(self.device), # 模拟语义嵌入
+                torch.randn(1, self.model.config.hidden_size).to(self.device), # 动态语义嵌入
                 time.time() * 1000,
                 {'semantic_pointer': f"User: {prompt}\nAssistant: {response_text}"}
             )

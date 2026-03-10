@@ -209,7 +209,7 @@ class BrainLikeConfig:
     """类人脑双系统全闭环AI架构全局配置"""
     # 基础模型配置
     base_model_name: str = "Qwen/Qwen3.5-0.8B-Base"  # 底座模型名称
-    model_hidden_size: int = 1024  # 隐藏层维度 (Qwen3.5-0.8B 采用混合架构，维度通常较大)
+    model_hidden_size: int = 1024  # 隐藏层维度
     model_num_layers: int = 24  # 层数
     model_num_heads: int = 16  # 注意力头数
     model_vocab_size: int = 151936  # 词表大小
