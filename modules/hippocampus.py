@@ -308,12 +308,27 @@ class CA3Region:
         if not self._memory_store:
             return []
         
+        # 确保cue是正确的形状
+        cue_flat = cue.flatten()
+        
         # 计算与所有记忆的相似度
         similarities = []
         for memory_id, memory_unit in self._memory_store.items():
+            memory_flat = memory_unit.feature_vector.flatten()
+            
+            # 处理维度不匹配的情况
+            if cue_flat.shape[0] != memory_flat.shape[0]:
+                # 使用较小的维度进行匹配
+                min_dim = min(cue_flat.shape[0], memory_flat.shape[0])
+                cue_compare = cue_flat[:min_dim]
+                memory_compare = memory_flat[:min_dim]
+            else:
+                cue_compare = cue_flat
+                memory_compare = memory_flat
+            
             similarity = F.cosine_similarity(
-                cue.flatten().unsqueeze(0),
-                memory_unit.feature_vector.flatten().unsqueeze(0)
+                cue_compare.unsqueeze(0),
+                memory_compare.unsqueeze(0)
             ).item()
             similarities.append((memory_id, similarity))
         
