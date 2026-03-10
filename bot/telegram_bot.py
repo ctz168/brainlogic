@@ -62,6 +62,11 @@ async def run_bot():
             "房租1600元租了20天，月租金是多少？",
         ]
         
+        await update.message.reply_text("正在启动批量测试引擎...")
+        engine = get_engine()
+        if not engine._initialized:
+            engine.initialize()
+            
         results = []
         for q in test_questions:
             answer = engine.generate(q)

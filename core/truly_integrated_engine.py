@@ -424,6 +424,10 @@ class TrulyIntegratedEngine:
         logger.info(f"冻结权重: {freeze_count}/{len(all_params)} 层")
         logger.info(f"可训练参数: {trainable/1e6:.2f}M ({trainable/total*100:.1f}%)")
     
+    def generate(self, prompt: str, max_new_tokens: int = 512) -> str:
+        """同步生成接口"""
+        return "".join(list(self.generate_stream(prompt, max_new_tokens)))
+
     def generate_stream(
         self,
         prompt: str,
