@@ -19,7 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 TELEGRAM_BOT_TOKEN = os.environ.get(
     "TELEGRAM_BOT_TOKEN",
-    "8728812786:AAHl8RFJdXSZyjdQTaiaG6vCA1aaDxXsNq0"
+    "8762303179:AAEP4fj3FzhEBXIbh4OXwVBo2E-v-cjrX2o"
 )
 
 _engine = None

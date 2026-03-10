@@ -115,15 +115,15 @@ class TrulyIntegratedEngine:
         self._initialized = True
         logger.info("引擎初始化完成！")
         logger.info(f"停止符清单: {self.stop_token_ids}")
-        logger.info(f"刷新周期: {self.config.refresh_period_ms}ms (100Hz)")
-        logger.info(f"STDP学习率: LTP={self.config.stdp_alpha}, LTD={self.config.stdp_beta}")
+        logger.info(f"刷新周期: {self.config.refresh.refresh_period_ms}ms (100Hz)")
+        logger.info(f"STDP学习率: LTP={self.config.stdp.alpha}, LTD={self.config.stdp.beta}")
         
         return True
     
     def _freeze_weights(self):
         """冻结90%权重"""
         all_params = list(self.model.named_parameters())
-        freeze_count = int(len(all_params) * self.config.freeze_ratio)
+        freeze_count = int(len(all_params) * self.config.weight_split.static_ratio)
         
         for i, (name, param) in enumerate(all_params):
             if i < freeze_count:
