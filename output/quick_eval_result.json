@@ -1,0 +1,28 @@
+{
+  "overall_accuracy": 0.8888888888888888,
+  "total_correct": 8,
+  "total_questions": 9,
+  "category_results": {
+    "math": {
+      "correct": 3,
+      "total": 3,
+      "accuracy": 1.0
+    },
+    "logic": {
+      "correct": 2,
+      "total": 2,
+      "accuracy": 1.0
+    },
+    "common": {
+      "correct": 2,
+      "total": 2,
+      "accuracy": 1.0
+    },
+    "language": {
+      "correct": 1,
+      "total": 2,
+      "accuracy": 0.5
+    }
+  },
+  "timestamp": "2026-03-10T01:06:45.145479"
+}

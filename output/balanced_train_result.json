@@ -1,0 +1,31 @@
+{
+  "before": {
+    "math": 1.0,
+    "logic": 1.0,
+    "common": 1.0,
+    "language": 0.2,
+    "overall": 0.8,
+    "categories": {
+      "math": 1.0,
+      "logic": 1.0,
+      "common": 1.0,
+      "language": 0.2
+    }
+  },
+  "after": {
+    "math": 1.0,
+    "logic": 1.0,
+    "common": 1.0,
+    "language": 0.2,
+    "overall": 0.8,
+    "categories": {
+      "math": 1.0,
+      "logic": 1.0,
+      "common": 1.0,
+      "language": 0.2
+    }
+  },
+  "improvement": 0.0,
+  "epochs": 1,
+  "learning_rate": 5e-06
+}
