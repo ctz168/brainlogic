@@ -28,10 +28,10 @@ _engine = None
 def get_engine():
     global _engine
     if _engine is None:
-        from core.prompt_learning_engine import PromptLearningEngine
-        # 使用提示学习引擎
+        from core.riemann_engine import RiemannSmoothingEngine
+        # 使用黎曼平滑引擎
         model_path = str(PROJECT_ROOT / "weights/Qwen3.5-0.8B")
-        _engine = PromptLearningEngine(model_path)
+        _engine = RiemannSmoothingEngine(model_path)
     return _engine
 
 
@@ -85,11 +85,11 @@ async def run_bot():
         message = await update.message.reply_text("已收到！类脑引擎正在准备中...")
         
         if not engine._initialized:
-            await message.edit_text("提示学习引擎加载中...")
+            await message.edit_text("黎曼平滑引擎加载中...")
             if not engine.initialize():
                 await message.edit_text("❌ 引擎加载失败")
                 return
-            await message.edit_text("✅ 学习引擎就绪")
+            await message.edit_text("✅ 黎曼引擎就绪")
         
         await update.message.chat.send_action("typing")
         
