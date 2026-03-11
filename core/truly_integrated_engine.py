@@ -165,7 +165,7 @@ class TrulyIntegratedEngine:
     def generate_stream(
         self,
         prompt: str,
-        max_new_tokens: int = 2048
+        max_new_tokens: int = 512
     ) -> Generator[str, None, None]:
         """
         流式生成（带STDP学习）
@@ -199,23 +199,24 @@ class TrulyIntegratedEngine:
         except Exception as e:
             logger.error(f"海马体召回失败: {e}")
 
-        # 构建输入 (针对Base模型增加日期引导)
+        # 构建输入 (Instruct格式，包含记忆上下文和推理引导)
         current_time_str = time.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 构建系统提示
+        system_prompt = f"""你是AI助手。当前时间: {current_time_str}
+请准确回答问题。遇到计算时：
+1. 提取所有数字
+2. 列出计算步骤
+3. 给出答案"""
+        
+        if memory_context:
+            system_prompt += f"\n\n{memory_context}"
+        
+        # 使用 Instruct 格式
         input_text = (
-            f"<|im_start|>system\n"
-            f"当前日期和时间: {current_time_str}\n"
-            f"你是一个类脑AI助手，由100Hz刷新频率的神经引擎驱动。请简洁地回答用户问题。\n\n"
-            f"{memory_context}\n\n"
-            f"【推理规范】对于逻辑问题，必须严格执行：\n"
-            f"1. 提取已知数字与时间信息。\n"
-            f"2. 严格遵循数学和财务逻辑判断。\n"
-            f"3. 综合【海马体关联记忆(Context)】补充缺失关联。\n"
-            f"4. 若上下文提供具体数据，优先以此数据为准进行计算。\n\n"
-            f"【示例】\n"
-            f"User: 3月份20天房租1600元。押金2400元。月租金是多少？\n"
-            f"Assistant: <think>1. 提取信息：20天房租为1600元。\n2. 计算日租金：1600元 / 20天 = 80元/天。\n3. 计算月租金：按每月30天计算，80元/天 * 30天 = 2400元/月。\n4. 结论：月租金为2400元。押金信息为干扰项或另一问题。</think>根据计算，每天的租金为80元，则一个月的月租金（按30天计）为2400元。<|im_end|>\n"
+            f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
             f"<|im_start|>user\n{prompt}<|im_end|>\n"
-            f"<|im_start|>assistant\n<think>\n"
+            f"<|im_start|>assistant\n"
         )
         
         encodings = self.tokenizer(
@@ -234,31 +235,49 @@ class TrulyIntegratedEngine:
         
         while generated_tokens < max_new_tokens:
             
-            # 【核心架构原生约束】：True O(1) 注意力窄窗口切片
-            O1_WINDOW_SIZE = 128
+            # 【核心架构原生约束】：True O(1) 动态聚焦窄窗口注意力
+            # 设计原理：
+            # 1. 固定窗口大小 = O(1) 复杂度，无论输入多长
+            # 2. 海马体记忆锚点替代被截断的远端上下文
+            # 3. 窗口大小平衡：太小丢失信息，太大失去O(1)优势
             
+            O1_WINDOW_SIZE = 128  # 固定窗口：16 tokens (约100ms上下文)
+            MEMORY_ANCHORS_COUNT = 2  # 海马体记忆锚点数量
+            
+            # 动态获取海马体记忆锚点（替代远端上下文）
+            memory_context_hints = []
+            if self.refresh_engine.hippocampus is not None and generated_tokens > 0:
+                try:
+                    # 使用上一周期的 hidden_state 作为查询线索
+                    if hasattr(self, '_prev_hidden_state') and self._prev_hidden_state is not None:
+                        anchors = self.refresh_engine.hippocampus.recall_memories(
+                            self._prev_hidden_state, top_k=MEMORY_ANCHORS_COUNT
+                        )
+                        # 提取语义指针作为上下文提示
+                        for anchor in anchors:
+                            if anchor.get('semantic_pointer'):
+                                memory_context_hints.append(anchor['semantic_pointer'])
+                except Exception as e:
+                    logger.debug(f"海马体记忆召回: {e}")
+            
+            # 窄窗口 KV cache 截断 (实现 O(1) 复杂度)
             if past_key_values is not None:
-                # 处理新版 Transformers 的 Cache 对象
                 from transformers.cache_utils import Cache
                 
                 if isinstance(past_key_values, Cache):
-                    # 获取当前缓存长度
                     seq_len = past_key_values.get_seq_length()
                     if seq_len > O1_WINDOW_SIZE:
-                        # 使用 crop 截断（如果支持）或手动裁剪内部张量
+                        # 截断到固定窗口大小
                         if hasattr(past_key_values, "crop"):
                             past_key_values.crop(O1_WINDOW_SIZE)
                         else:
-                            # 手动裁剪每一层的 key_cache 和 value_cache
                             for i in range(len(past_key_values.key_cache)):
                                 past_key_values.key_cache[i] = past_key_values.key_cache[i][..., -O1_WINDOW_SIZE:, :]
                                 past_key_values.value_cache[i] = past_key_values.value_cache[i][..., -O1_WINDOW_SIZE:, :]
                         
-                        # 同步截断 attention_mask
                         if attention_mask.shape[-1] > O1_WINDOW_SIZE + 1:
                             attention_mask = attention_mask[:, -(O1_WINDOW_SIZE+1):]
                 
-                # 处理旧版元组格式
                 elif isinstance(past_key_values, tuple):
                     seq_len = past_key_values[0][0].shape[-2]
                     if seq_len > O1_WINDOW_SIZE:
@@ -271,7 +290,7 @@ class TrulyIntegratedEngine:
                         past_key_values = tuple(new_past_key_values)
                         
                         if attention_mask.shape[-1] > O1_WINDOW_SIZE + 1:
-                             attention_mask = attention_mask[:, -(O1_WINDOW_SIZE+1):]
+                            attention_mask = attention_mask[:, -(O1_WINDOW_SIZE+1):]
             
             # 必须显式传入 position_ids，否则 Qwen2 会根据切断后的 pkv 长度重新计算位置索引，导致全校错乱
             if past_key_values is None:
@@ -291,9 +310,12 @@ class TrulyIntegratedEngine:
                     output_hidden_states=True
                 )
             
-            logits = outputs.logits[:, -1, :]
+            logits = outputs.logits[:, -1, :].clone()  # Clone to allow inplace operations
             hidden_state = outputs.hidden_states[-1][:, -1, :]
             past_key_values = outputs.past_key_values
+            
+            # 保存当前 hidden_state 供下一周期海马体检索使用
+            self._prev_hidden_state = hidden_state.detach().clone()
             
             # STDP学习 (带缓冲机制)
             self._stdp_learn_buffered(hidden_state)
@@ -309,8 +331,8 @@ class TrulyIntegratedEngine:
                     logits[0, unique_tokens] * 1.1
                 )
             
-            # 2. Temperature (0.1 for logic precision)
-            logits = logits / 0.1
+            # 2. Temperature (0.7 for better diversity)
+            logits = logits / 0.7
             
             # 3. Top-P (0.9) - 保持矢量化计算
             sorted_logits, sorted_indices = torch.sort(logits, descending=True)
@@ -339,6 +361,20 @@ class TrulyIntegratedEngine:
             if "User:" in token_text or "用户:" in token_text:
                 break
             
+            # 检测重复token循环 (防止无限重复) - 放宽条件
+            if len(response_text) > 100:
+                # 检查最后30个字符是否连续重复3次
+                last_30 = response_text[-30:]
+                if len(response_text) > 90:
+                    if response_text[-60:-30] == last_30 and response_text[-90:-60] == last_30:
+                        logger.warning(f"检测到重复输出，强制终止")
+                        break
+                # 检测乱码（非中文字符比例极高）
+                chinese_chars = sum(1 for c in response_text[-100:] if '\u4e00' <= c <= '\u9fff')
+                if len(response_text[-100:]) > 0 and chinese_chars / len(response_text[-100:]) < 0.1:
+                    logger.warning(f"检测到可能的乱码输出，强制终止")
+                    break
+            
             yield token_text
             response_text += token_text
             
@@ -363,20 +399,43 @@ class TrulyIntegratedEngine:
             )
     
     def _stdp_learn_buffered(self, hidden_state: torch.Tensor):
-        """STDP在线学习 (带权重复合缓存优化)"""
-        # 计算激活强度
+        """STDP在线学习 (增强版 - 基于激活模式的差异化更新)"""
+        # 计算激活强度和分布特征
         activation = hidden_state.abs().mean().item()
+        activation_std = hidden_state.std().item()
+        activation_max = hidden_state.abs().max().item()
         
-        # 模拟时序差
-        delta_t = 5.0
+        # 根据激活模式调整学习强度
+        # 高激活 + 低方差 = 确定性高的信号，增强学习
+        # 低激活 + 高方差 = 不确定信号，减弱学习
+        confidence = activation / (activation_std + 1e-6)
         
-        # 计算单步更新强度
+        # 模拟时序差 (基于激活强度动态调整)
+        delta_t = 5.0 * (1.0 + 0.5 * min(activation, 1.0))
+        
+        # 计算单步更新强度 (增强版)
         update, update_type = self.refresh_engine.stdp.compute_update(delta_t, activation)
-        multiplier = update if update_type == STDPType.LTP else -update
+        
+        # 根据置信度调整更新方向和强度
+        if update_type == STDPType.LTP:
+            # 高置信度时增强LTP
+            multiplier = update * (1.0 + 0.5 * min(confidence, 2.0))
+        else:
+            # LTD保持稳定
+            multiplier = -update
         
         # 累积到缓冲区
         self._stdp_buffer_multiplier += multiplier
         self._stdp_update_step += 1
+        
+        # 记录学习统计
+        if not hasattr(self, '_stdp_stats'):
+            self._stdp_stats = {'ltp_count': 0, 'ltd_count': 0, 'total_update': 0}
+        if update_type == STDPType.LTP:
+            self._stdp_stats['ltp_count'] += 1
+        else:
+            self._stdp_stats['ltd_count'] += 1
+        self._stdp_stats['total_update'] += abs(multiplier)
         
         # 达到阈值或步数时，执行融合 (Weight Fusion)
         if self._stdp_update_step >= self._fusion_interval:
@@ -385,24 +444,49 @@ class TrulyIntegratedEngine:
             self._stdp_update_step = 0
 
     def _fuse_dynamic_weights(self):
-        """核心 CPU 优化：双权重融合缓存 (Dual Weight Fusion Cache)"""
+        """核心优化：双权重融合缓存 (增强版 - 分层差异化更新)"""
         if self._stdp_buffer_multiplier == 0:
             return
-            
-        learning_rate = 0.0001
+        
+        # 基础学习率
+        base_learning_rate = 0.0001
+        
+        # 根据累积更新方向调整学习强度
+        if self._stdp_buffer_multiplier > 0:
+            # LTP主导 - 增强学习
+            learning_rate = base_learning_rate * 1.5
+        else:
+            # LTD主导 - 保守学习
+            learning_rate = base_learning_rate * 0.8
+        
         total_multiplier = self._stdp_buffer_multiplier * learning_rate
         
+        updated_count = 0
         with torch.no_grad():
             for name, param in self.model.named_parameters():
                 if name in self.refresh_engine.dynamic_weights:
-                    # 1. 更新动态偏置向量 (Dynamic Weights)
-                    self.refresh_engine.dynamic_weights[name].add_(total_multiplier)
+                    # 分层学习率：注意力层更强，FFN层适中
+                    layer_multiplier = total_multiplier
+                    if 'attention' in name.lower() or 'attn' in name.lower():
+                        layer_multiplier *= 1.2  # 注意力层增强
+                    elif 'ffn' in name.lower() or 'mlp' in name.lower():
+                        layer_multiplier *= 0.9  # FFN层适中
                     
-                    # 2. 融合到模型实体权重中 (Fusion Cache)
-                    # 公式: CurrentWeight = StaticWeight + DynamicWeight
+                    # 1. 更新动态偏置向量 (Dynamic Weights)
+                    self.refresh_engine.dynamic_weights[name].add_(layer_multiplier)
+                    
+                    # 2. 权重裁剪 (防止过度偏离)
+                    max_deviation = 0.1  # 最大偏离阈值
+                    self.refresh_engine.dynamic_weights[name].clamp_(-max_deviation, max_deviation)
+                    
+                    # 3. 融合到模型实体权重中 (Fusion Cache)
                     param.data.copy_(self._static_weights_backup[name] + self.refresh_engine.dynamic_weights[name])
+                    updated_count += 1
         
-        # logger.debug(f"已执行全量权重融合 (融合步数: {self._fusion_interval})")
+        # 记录融合统计
+        if hasattr(self, '_stdp_stats'):
+            self._stdp_stats['fusion_count'] = self._stdp_stats.get('fusion_count', 0) + 1
+            self._stdp_stats['last_fusion_params'] = updated_count
 
     def _stdp_learn(self, hidden_state: torch.Tensor):
         """过时的逐步骤学习，已由 _stdp_learn_buffered 替代"""

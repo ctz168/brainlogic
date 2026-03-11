@@ -28,9 +28,10 @@ _engine = None
 def get_engine():
     global _engine
     if _engine is None:
-        from core.truly_integrated_engine import TrulyIntegratedEngine
-        model_path = str(PROJECT_ROOT / "weights/Qwen3.5-0.8B-Base")
-        _engine = TrulyIntegratedEngine(model_path)
+        from core.optimal_engine import OptimalEnhancedEngine
+        # 使用最优增强引擎
+        model_path = str(PROJECT_ROOT / "weights/Qwen3.5-0.8B")
+        _engine = OptimalEnhancedEngine(model_path)
     return _engine
 
 
@@ -84,11 +85,11 @@ async def run_bot():
         message = await update.message.reply_text("已收到！类脑引擎正在准备中...")
         
         if not engine._initialized:
-            await message.edit_text("类脑引擎（Qwen3.5-0.8B）初次运行，正在加载权重 (约需1-2分钟)，请耐心等待...")
+            await message.edit_text("最优增强引擎加载中...")
             if not engine.initialize():
-                await message.edit_text("❌ 引擎加载失败，请检查模型文件。")
+                await message.edit_text("❌ 引擎加载失败")
                 return
-            await message.edit_text("✅ 引擎加载完成！现在开始思考您的指令...")
+            await message.edit_text("✅ 最优引擎就绪")
         
         await update.message.chat.send_action("typing")
         
