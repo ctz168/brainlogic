@@ -28,10 +28,10 @@ _engine = None
 def get_engine():
     global _engine
     if _engine is None:
-        from core.riemann_engine import RiemannSmoothingEngine
-        # 使用黎曼平滑引擎
+        from core.ultimate_engine import UltimateEngine
+        # 使用终极集成引擎
         model_path = str(PROJECT_ROOT / "weights/Qwen3.5-0.8B")
-        _engine = RiemannSmoothingEngine(model_path)
+        _engine = UltimateEngine(model_path)
     return _engine
 
 
@@ -85,11 +85,11 @@ async def run_bot():
         message = await update.message.reply_text("已收到！类脑引擎正在准备中...")
         
         if not engine._initialized:
-            await message.edit_text("黎曼平滑引擎加载中...")
+            await message.edit_text("终极引擎加载中...")
             if not engine.initialize():
                 await message.edit_text("❌ 引擎加载失败")
                 return
-            await message.edit_text("✅ 黎曼引擎就绪")
+            await message.edit_text("✅ 终极引擎就绪")
         
         await update.message.chat.send_action("typing")
         
