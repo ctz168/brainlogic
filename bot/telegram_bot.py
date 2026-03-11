@@ -28,10 +28,10 @@ _engine = None
 def get_engine():
     global _engine
     if _engine is None:
-        from core.triple_engine import TripleEnhancedEngine
-        # 使用三大增强引擎
+        from core.prompt_learning_engine import PromptLearningEngine
+        # 使用提示学习引擎
         model_path = str(PROJECT_ROOT / "weights/Qwen3.5-0.8B")
-        _engine = TripleEnhancedEngine(model_path)
+        _engine = PromptLearningEngine(model_path)
     return _engine
 
 
@@ -85,11 +85,11 @@ async def run_bot():
         message = await update.message.reply_text("已收到！类脑引擎正在准备中...")
         
         if not engine._initialized:
-            await message.edit_text("三大增强引擎加载中...")
+            await message.edit_text("提示学习引擎加载中...")
             if not engine.initialize():
                 await message.edit_text("❌ 引擎加载失败")
                 return
-            await message.edit_text("✅ 三大增强引擎就绪")
+            await message.edit_text("✅ 学习引擎就绪")
         
         await update.message.chat.send_action("typing")
         
